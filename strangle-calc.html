@@ -329,12 +329,12 @@ function solveAndRefresh(row, sectionCtx) {
   const c = row.cells;
 
   if (row.mode === 'STR') {
-    // strangle_bid = fly_offer + atm_bid
-    // strangle_offer = fly_bid + atm_offer
+    // strangle_bid = atm_bid + fly_bid
+    // strangle_offer = atm_offer + fly_offer
     const ab = readV(c.atmBid),  ao = readV(c.atmOffer);
     const fb = readV(c.flyBid),  fo = readV(c.flyOffer);
-    writeV(c.strBid,   (ab !== null && fo !== null) ? fo + ab : null);
-    writeV(c.strOffer, (ao !== null && fb !== null) ? fb + ao : null);
+    writeV(c.strBid,   (ab !== null && fb !== null) ? ab + fb : null);
+    writeV(c.strOffer, (ao !== null && fo !== null) ? ao + fo : null);
 
   } else if (row.mode === 'FLY') {
     // fly_offer = strangle_bid  - atm_bid
@@ -439,8 +439,8 @@ function renderSection(atm, fly) {
     const a = atm.tenors[tenor];   // may be undefined
     const f = fly.tenors[tenor];   // may be undefined
 
-    const initSb = (a && f) ? f.offer + a.bid   : null;
-    const initSo = (a && f) ? f.bid   + a.offer : null;
+    const initSb = (a && f) ? a.bid + f.bid     : null;
+    const initSo = (a && f) ? a.offer + f.offer : null;
 
     const tr = tbody.insertRow();
 
