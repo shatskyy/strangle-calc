@@ -8,27 +8,27 @@ Brokers paste ATM and butterfly vol runs, get implied strangle runs. All cells a
 
 ## Calculation Engine
 
-The core identity: `fly = strangle − atm` (in vol terms). Bid/offer crossing for package-implied pricing:
+The core identity: `strangle = atm + fly` (in vol terms). Same-side addition for package pricing — bid with bid, offer with offer:
 
 ### ATM + Fly → Strangle (primary, from paste)
 
 ```
-strangle_bid  = fly_offer + atm_bid
-strangle_offer = fly_bid   + atm_offer
+strangle_bid   = fly_bid   + atm_bid
+strangle_offer = atm_offer + fly_offer
 ```
 
 ### ATM + Strangle → Fly (when broker edits a strangle cell)
 
 ```
-fly_offer = strangle_bid  − atm_bid
-fly_bid   = strangle_offer − atm_offer
+fly_bid   = strangle_bid   − atm_bid
+fly_offer = strangle_offer − atm_offer
 ```
 
 ### Fly + Strangle → ATM (when broker edits an ATM cell after strangle is set)
 
 ```
-atm_bid   = strangle_bid  − fly_offer
-atm_offer = strangle_offer − fly_bid
+atm_bid   = strangle_bid   − fly_bid
+atm_offer = strangle_offer − fly_offer
 ```
 
 ## Input Format
@@ -74,8 +74,8 @@ Formatted text matching input convention, e.g.:
 
 ```
 USD/CHF NYK 10D STRANGLE
-1M 6.750/7.075
-2M 6.925/7.475
+1M 6.500/7.325
+2M 6.925/7.675
 ...
 ```
 
@@ -111,14 +111,14 @@ When two fly runs are pasted (10D and 25D), table expands with grouped columns p
 
 Using the example inputs above, expected 1M strangle output:
 
-- strangle_bid  = fly_offer + atm_bid  = 0.725 + 6.025 = 6.750
-- strangle_offer = fly_bid + atm_offer = 0.475 + 6.600 = 7.075
-- Output: `1M 6.750/7.075`
+- strangle_bid   = fly_bid   + atm_bid   = 0.475 + 6.025 = 6.500
+- strangle_offer = atm_offer + fly_offer = 6.600 + 0.725 = 7.325
+- Output: `1M 6.500/7.325`
 
 Reverse check (ATM + Strangle → Fly):
 
-- fly_offer = strangle_bid − atm_bid   = 6.750 − 6.025 = 0.725 ✓
-- fly_bid   = strangle_offer − atm_offer = 7.075 − 6.600 = 0.475 ✓
+- fly_bid   = strangle_bid   − atm_bid   = 6.500 − 6.025 = 0.475 ✓
+- fly_offer = strangle_offer − atm_offer = 7.325 − 6.600 = 0.725 ✓
 
 ## Constraints
 
