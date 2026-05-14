@@ -93,8 +93,6 @@ button.calc-btn:active { background: #354ca0; }
 /* ── Results ── */
 .results { display: flex; flex-direction: column; gap: 22px; }
 
-.delta-section {}
-
 .section-title {
   color: #4a6080;
   font-size: 10px;
@@ -135,29 +133,49 @@ thead tr.col-row th {
   text-transform: uppercase;
   white-space: nowrap;
 }
-thead tr.col-row th.col-tenor { text-align: left; }
+thead tr.col-row th:first-child { text-align: left; }
 
 tbody tr { border-bottom: 1px solid #13132a; }
 tbody tr:last-child { border-bottom: none; }
 tbody tr:hover td { background: #141428; }
+tbody tr:hover td input { background: transparent; }
 
-tbody tr.crossed td { background: #2a1a10; }
-tbody tr.crossed td.col-tenor { color: #e08030; }
+tbody tr.crossed td            { background: #251810; }
+tbody tr.crossed:hover td      { background: #2d1e12; }
+tbody tr.crossed td.col-tenor  { color: #e08030; }
 
 td {
-  padding: 3px 8px;
-  text-align: right;
+  padding: 2px 4px;
   white-space: nowrap;
+  vertical-align: middle;
 }
 td.col-tenor {
   color: #5070a0;
   text-align: left;
   min-width: 42px;
+  padding: 2px 10px 2px 4px;
 }
 
+/* ── Editable vol inputs ── */
+td input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  outline: none;
+  padding: 2px 2px 1px;
+  text-align: right;
+  width: 58px;
+  transition: border-bottom-color 0.1s;
+}
+td input:focus { border-bottom-color: #2a4878; }
+td input::placeholder { color: #252545; }
+
+/* color classes applied to inputs */
 .v-src  { color: #e8e8f0; }
-.v-calc { color: #00c8c8; }
-.v-none { color: #252540; }
+.v-calc { color: #4fc3f7; }
+.v-none { color: #252545; }
 
 /* ── Output block ── */
 .output-wrap {
@@ -191,7 +209,7 @@ button.copy-btn {
   text-transform: uppercase;
   transition: all 0.12s;
 }
-button.copy-btn:hover { border-color: #3a5090; color: #5a90c0; }
+button.copy-btn:hover  { border-color: #3a5090; color: #5a90c0; }
 button.copy-btn.copied { border-color: #206040; color: #30c060; }
 
 .output-text {
@@ -213,11 +231,13 @@ button.copy-btn.copied { border-color: #206040; color: #30c060; }
 <div class="input-panel">
   <div class="ta-wrap">
     <div class="ta-label">ATM Run</div>
-    <textarea id="ta-atm" spellcheck="false" placeholder="Paste ATM run here&#10;e.g. USD/CHF NYK ATM&#10;1M 6.025/6.6&#10;..."></textarea>
+    <textarea id="ta-atm" spellcheck="false"
+      placeholder="Paste ATM run here&#10;e.g. USD/CHF NYK ATM&#10;1M 6.025/6.6&#10;..."></textarea>
   </div>
   <div class="ta-wrap">
     <div class="ta-label">Fly Run(s) — paste one or two deltas</div>
-    <textarea id="ta-fly" spellcheck="false" placeholder="Paste fly run(s) here&#10;e.g. USD/CHF NYK 10D FLY&#10;1M 0.475/0.725&#10;...&#10;&#10;Separate two deltas with a blank line"></textarea>
+    <textarea id="ta-fly" spellcheck="false"
+      placeholder="Paste fly run(s) here&#10;e.g. USD/CHF NYK 10D FLY&#10;1M 0.475/0.725&#10;...&#10;&#10;Separate two deltas with a blank line"></textarea>
   </div>
 </div>
 
@@ -229,13 +249,23 @@ button.copy-btn.copied { border-color: #206040; color: #30c060; }
 <div class="results" id="results"></div>
 
 <script>
+// ── Constants ─────────────────────────────────────────────────────────────
+
 const TENOR_ORDER = ['1W','2W','3W','1M','2M','3M','4M','5M','6M','9M','1Y','18M','2Y','3Y','5Y'];
-const TENOR_RANK = Object.fromEntries(TENOR_ORDER.map((t, i) => [t, i]));
+const TENOR_RANK  = Object.fromEntries(TENOR_ORDER.map((t, i) => [t, i]));
 
 function tenorRank(t) {
   const r = TENOR_RANK[t.toUpperCase()];
   return r !== undefined ? r : 999;
 }
+
+// Which fields are SOURCE (typed/retained) for each solve mode.
+// The two fields NOT in this set are derived/computed.
+const SOURCE_FIELDS = {
+  STR: new Set(['atmBid','atmOffer','flyBid','flyOffer']),  // derive strBid + strOffer
+  FLY: new Set(['atmBid','atmOffer','strBid','strOffer']),  // derive flyBid + flyOffer
+  ATM: new Set(['flyBid','flyOffer','strBid','strOffer']),  // derive atmBid + atmOffer
+};
 
 // ── Parser ────────────────────────────────────────────────────────────────
 
@@ -248,31 +278,36 @@ function parseRun(text) {
   if (!ccyM) return { err: `No currency pair found in: "${header}"` };
 
   const ccy = ccyM[1].toUpperCase();
+  const [base, quote] = ccy.split('/');
   const cutM = header.match(/\b([A-Z]{3})\b/gi)
     ?.map(s => s.toUpperCase())
-    .find(s => s !== ccy.split('/')[0] && s !== ccy.split('/')[1]);
+    .find(s => s !== base && s !== quote);
   const cut = cutM || '';
 
-  const flyM  = header.match(/\b(\d+D)\s+FLY\b/i);
-  const atmM  = header.match(/\bATM\b/i);
+  const flyM = header.match(/\b(\d+D)\s+FLY\b/i);
+  const atmM = header.match(/\bATM\b/i);
 
   let type, delta;
-  if (atmM)      { type = 'ATM'; delta = null; }
+  if      (atmM) { type = 'ATM'; delta = null; }
   else if (flyM) { type = 'FLY'; delta = flyM[1].toUpperCase(); }
-  else return { err: `Unrecognised structure in header: "${header}"` };
+  else           { return { err: `Unrecognised structure in header: "${header}"` }; }
 
   const tenorRe = /^([0-9]+[DWMYdwmy])\s+([0-9.]+)\s*\/\s*([0-9.]+)/;
   const tenors  = {};
   for (let i = 1; i < lines.length; i++) {
     const m = lines[i].match(tenorRe);
-    if (m) tenors[m[1].toUpperCase()] = { bid: +m[2], offer: +m[3] };
+    if (m) {
+      tenors[m[1].toUpperCase()] = {
+        bid: +m[2], offer: +m[3],
+        bidStr: m[2], offerStr: m[3],   // original strings preserved for display
+      };
+    }
   }
 
   return { ccy, cut, type, delta, tenors };
 }
 
 function parseFlyBlock(text) {
-  // Support two runs separated by a blank line
   return text.trim()
     .split(/\n[ \t]*\n/)
     .map(b => b.trim())
@@ -283,17 +318,73 @@ function parseFlyBlock(text) {
 
 // ── Formatting ────────────────────────────────────────────────────────────
 
-function fmt(v) {
-  // Always 3dp for derived values; for display consistency
-  return v.toFixed(3);
+function fmt(v) { return v.toFixed(3); }
+
+// ── Solve engine ──────────────────────────────────────────────────────────
+
+function readV(inp)      { const v = parseFloat(inp.value); return isNaN(v) ? null : v; }
+function writeV(inp, v)  { inp.value = v !== null ? fmt(v) : ''; }
+
+function solveAndRefresh(row, sectionCtx) {
+  const c = row.cells;
+
+  if (row.mode === 'STR') {
+    // strangle_bid = fly_offer + atm_bid
+    // strangle_offer = fly_bid + atm_offer
+    const ab = readV(c.atmBid),  ao = readV(c.atmOffer);
+    const fb = readV(c.flyBid),  fo = readV(c.flyOffer);
+    writeV(c.strBid,   (ab !== null && fo !== null) ? fo + ab : null);
+    writeV(c.strOffer, (ao !== null && fb !== null) ? fb + ao : null);
+
+  } else if (row.mode === 'FLY') {
+    // fly_offer = strangle_bid  - atm_bid
+    // fly_bid   = strangle_offer - atm_offer
+    const ab = readV(c.atmBid),  ao = readV(c.atmOffer);
+    const sb = readV(c.strBid),  so = readV(c.strOffer);
+    writeV(c.flyOffer, (sb !== null && ab !== null) ? sb - ab : null);
+    writeV(c.flyBid,   (so !== null && ao !== null) ? so - ao : null);
+
+  } else { // ATM
+    // atm_bid   = strangle_bid   - fly_offer
+    // atm_offer = strangle_offer - fly_bid
+    const fb = readV(c.flyBid),  fo = readV(c.flyOffer);
+    const sb = readV(c.strBid),  so = readV(c.strOffer);
+    writeV(c.atmBid,   (sb !== null && fo !== null) ? sb - fo : null);
+    writeV(c.atmOffer, (so !== null && fb !== null) ? so - fb : null);
+  }
+
+  // Recolor all inputs: source → white, derived → cyan, empty → muted
+  const srcSet = SOURCE_FIELDS[row.mode];
+  for (const [field, inp] of Object.entries(c)) {
+    const v = readV(inp);
+    inp.className = v !== null
+      ? (srcSet.has(field) ? 'v-src' : 'v-calc')
+      : 'v-none';
+  }
+
+  // Crossed-market row highlight
+  const ab = readV(c.atmBid), ao = readV(c.atmOffer);
+  const fb = readV(c.flyBid), fo = readV(c.flyOffer);
+  const sb = readV(c.strBid), so = readV(c.strOffer);
+  const crossed =
+    (ab !== null && ao !== null && ab >= ao) ||
+    (fb !== null && fo !== null && fb >= fo) ||
+    (sb !== null && so !== null && sb >= so);
+  row.tr.classList.toggle('crossed', crossed);
+
+  updateOutput(sectionCtx);
 }
 
-function buildOutputText(ccy, cut, delta, rows) {
+function updateOutput({ ccy, cut, delta, rows, outPre }) {
   const header = `${ccy} ${cut} ${delta} STRANGLE`;
-  const lines  = rows
-    .filter(r => r.sb !== null && r.so !== null)
-    .map(r => `${r.tenor.padEnd(4)} ${fmt(r.sb)}/${fmt(r.so)}`);
-  return [header, ...lines].join('\n');
+  const lines = rows.flatMap(row => {
+    const sb = readV(row.cells.strBid);
+    const so = readV(row.cells.strOffer);
+    return (sb !== null && so !== null)
+      ? [`${row.tenor.padEnd(4)} ${fmt(sb)}/${fmt(so)}`]
+      : [];
+  });
+  outPre.textContent = [header, ...lines].join('\n');
 }
 
 // ── Render ────────────────────────────────────────────────────────────────
@@ -301,17 +392,11 @@ function buildOutputText(ccy, cut, delta, rows) {
 function renderSection(atm, fly) {
   const allTenors = [...new Set([
     ...Object.keys(atm.tenors),
-    ...Object.keys(fly.tenors)
+    ...Object.keys(fly.tenors),
   ])].sort((a, b) => tenorRank(a) - tenorRank(b));
 
-  // Build row data
-  const rows = allTenors.map(tenor => {
-    const a = atm.tenors[tenor];
-    const f = fly.tenors[tenor];
-    const sb = (a && f) ? f.offer + a.bid   : null;
-    const so = (a && f) ? f.bid   + a.offer : null;
-    return { tenor, a, f, sb, so };
-  });
+  // Section context holds everything needed to refresh the output block.
+  const sectionCtx = { ccy: atm.ccy, cut: atm.cut, delta: fly.delta, rows: [], outPre: null };
 
   const section = document.createElement('div');
   section.className = 'delta-section';
@@ -321,101 +406,138 @@ function renderSection(atm, fly) {
   title.textContent = `${atm.ccy} ${atm.cut} · ${fly.delta} strangle`;
   section.appendChild(title);
 
-  // ── Table
+  // ── Table header
   const table = document.createElement('table');
-
-  // Group header row
   const thead = table.createTHead();
-  const gRow  = thead.insertRow();
+
+  const gRow = thead.insertRow();
   gRow.className = 'group-row';
-
-  const thTenor = document.createElement('th');
-  thTenor.rowSpan = 2;
-  thTenor.style.textAlign = 'left';
-  gRow.appendChild(thTenor);
-
-  [['ATM','g-atm',2], ['FLY','g-fly',2], ['STRANGLE','g-strng',2]].forEach(([label, cls, span]) => {
+  const thSpan = document.createElement('th');
+  thSpan.rowSpan = 2;
+  gRow.appendChild(thSpan);
+  [['ATM','g-atm',2], ['FLY','g-fly',2], ['STRANGLE','g-strng',2]].forEach(([lbl,cls,span]) => {
     const th = document.createElement('th');
-    th.textContent = label;
-    th.colSpan = span;
-    th.className = cls;
+    th.textContent = lbl; th.colSpan = span; th.className = cls;
     gRow.appendChild(th);
   });
 
-  // Column header row
   const cRow = thead.insertRow();
   cRow.className = 'col-row';
-  ['Bid','Offer','Bid','Offer','Bid','Offer'].forEach(label => {
+  const thTenor = document.createElement('th');
+  thTenor.textContent = 'Tenor';
+  cRow.appendChild(thTenor);
+  ['Bid','Offer','Bid','Offer','Bid','Offer'].forEach(lbl => {
     const th = document.createElement('th');
-    th.textContent = label;
+    th.textContent = lbl;
     cRow.appendChild(th);
   });
 
-  // Body
+  // ── Table body
   const tbody = table.createTBody();
-  rows.forEach(({ tenor, a, f, sb, so }) => {
-    const tr = tbody.insertRow();
-    // Crossed market check: bid >= offer in any pair
-    const atmCrossed = a && a.bid >= a.offer;
-    const flyCrossed = f && f.bid >= f.offer;
-    const stCrossed  = sb !== null && sb >= so;
-    if (atmCrossed || flyCrossed || stCrossed) tr.className = 'crossed';
 
-    const cell = (text, cls) => {
-      const td = tr.insertCell();
-      td.textContent = text;
-      td.className = cls;
-      return td;
+  for (const tenor of allTenors) {
+    const a = atm.tenors[tenor];   // may be undefined
+    const f = fly.tenors[tenor];   // may be undefined
+
+    const initSb = (a && f) ? f.offer + a.bid   : null;
+    const initSo = (a && f) ? f.bid   + a.offer : null;
+
+    const tr = tbody.insertRow();
+
+    const tdTenor = tr.insertCell();
+    tdTenor.className = 'col-tenor';
+    tdTenor.textContent = tenor;
+
+    // makeInp: appends a td+input to tr, returns the input element.
+    // srcStr: original pasted string (preserves "5.5" vs "5.500"); null for computed values.
+    const makeInp = (val, srcStr, isSrc) => {
+      const td  = tr.insertCell();
+      const inp = document.createElement('input');
+      inp.type        = 'text';
+      inp.placeholder = '–';
+      inp.autocomplete = 'off';
+      inp.spellcheck  = false;
+      if (val !== null) inp.value = srcStr !== null ? srcStr : fmt(val);
+      inp.className = val !== null ? (isSrc ? 'v-src' : 'v-calc') : 'v-none';
+      td.appendChild(inp);
+      return inp;
     };
 
-    cell(tenor, 'col-tenor');
-    cell(a ? fmt(a.bid)   : '—', a ? 'v-src' : 'v-none');
-    cell(a ? fmt(a.offer) : '—', a ? 'v-src' : 'v-none');
-    cell(f ? fmt(f.bid)   : '—', f ? 'v-src' : 'v-none');
-    cell(f ? fmt(f.offer) : '—', f ? 'v-src' : 'v-none');
-    cell(sb !== null ? fmt(sb) : '—', sb !== null ? 'v-calc' : 'v-none');
-    cell(so !== null ? fmt(so) : '—', so !== null ? 'v-calc' : 'v-none');
-  });
+    const cells = {
+      atmBid:   makeInp(a?.bid   ?? null, a?.bidStr   ?? null, true),
+      atmOffer: makeInp(a?.offer ?? null, a?.offerStr ?? null, true),
+      flyBid:   makeInp(f?.bid   ?? null, f?.bidStr   ?? null, true),
+      flyOffer: makeInp(f?.offer ?? null, f?.offerStr ?? null, true),
+      strBid:   makeInp(initSb, null, false),
+      strOffer: makeInp(initSo, null, false),
+    };
+
+    // Initial crossed check
+    if ((a && a.bid >= a.offer) ||
+        (f && f.bid >= f.offer) ||
+        (initSb !== null && initSo !== null && initSb >= initSo)) {
+      tr.classList.add('crossed');
+    }
+
+    const row = { tenor, mode: 'STR', cells, tr };
+    sectionCtx.rows.push(row);
+
+    // Event wiring: mode update then solve on every keystroke
+    for (const [field, inp] of Object.entries(cells)) {
+      inp.addEventListener('input', () => {
+        if (field === 'strBid' || field === 'strOffer') {
+          row.mode = 'FLY';
+        } else if (field === 'flyBid' || field === 'flyOffer') {
+          row.mode = 'STR';
+        } else {
+          // ATM edit: keep current derive target; if ATM was derived, revert to STR default
+          if (row.mode === 'ATM') row.mode = 'STR';
+        }
+        solveAndRefresh(row, sectionCtx);
+      });
+    }
+  }
 
   section.appendChild(table);
 
   // ── Output block
-  const outText = buildOutputText(atm.ccy, atm.cut, fly.delta, rows);
-  const outWrap = document.createElement('div');
+  const outWrap  = document.createElement('div');
   outWrap.className = 'output-wrap';
 
-  const outHeader = document.createElement('div');
-  outHeader.className = 'output-header';
+  const outHdr = document.createElement('div');
+  outHdr.className = 'output-header';
 
   const outLabel = document.createElement('span');
   outLabel.className = 'output-label';
   outLabel.textContent = 'Output';
-  outHeader.appendChild(outLabel);
 
   const copyBtn = document.createElement('button');
   copyBtn.className = 'copy-btn';
   copyBtn.textContent = 'Copy';
+
+  const pre = document.createElement('div');
+  pre.className = 'output-text';
+  sectionCtx.outPre = pre;
+  updateOutput(sectionCtx);   // initial render
+
   copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(outText).then(() => {
+    navigator.clipboard.writeText(pre.textContent).then(() => {
       copyBtn.textContent = 'Copied';
       copyBtn.classList.add('copied');
       setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.classList.remove('copied'); }, 1500);
     });
   });
-  outHeader.appendChild(copyBtn);
 
-  const pre = document.createElement('div');
-  pre.className = 'output-text';
-  pre.textContent = outText;
-
-  outWrap.appendChild(outHeader);
+  outHdr.appendChild(outLabel);
+  outHdr.appendChild(copyBtn);
+  outWrap.appendChild(outHdr);
   outWrap.appendChild(pre);
   section.appendChild(outWrap);
 
   return section;
 }
 
-// ── Calculate ─────────────────────────────────────────────────────────────
+// ── Calculate (parse + render) ────────────────────────────────────────────
 
 function calculate() {
   const errEl     = document.getElementById('err');
@@ -427,21 +549,19 @@ function calculate() {
   const flyText = document.getElementById('ta-fly').value;
 
   if (!atmText.trim() && !flyText.trim()) return;
-
-  if (!atmText.trim()) { errEl.textContent = 'Paste an ATM run on the left.'; return; }
+  if (!atmText.trim()) { errEl.textContent = 'Paste an ATM run on the left.';          return; }
   if (!flyText.trim()) { errEl.textContent = 'Paste at least one Fly run on the right.'; return; }
 
   const atm = parseRun(atmText);
-  if (!atm)       { errEl.textContent = 'Could not parse ATM input.'; return; }
-  if (atm.err)    { errEl.textContent = atm.err; return; }
-  if (atm.type !== 'ATM') { errEl.textContent = 'Left textarea must contain the ATM run.'; return; }
+  if (!atm)              { errEl.textContent = 'Could not parse ATM input.';               return; }
+  if (atm.err)           { errEl.textContent = atm.err;                                    return; }
+  if (atm.type !== 'ATM'){ errEl.textContent = 'Left textarea must contain the ATM run.';  return; }
 
   const flyRuns = parseFlyBlock(flyText);
-  if (!flyRuns.length) { errEl.textContent = 'Could not parse any Fly runs.'; return; }
-
+  if (!flyRuns.length)   { errEl.textContent = 'Could not parse any Fly runs.'; return; }
   for (const r of flyRuns) {
-    if (r.err) { errEl.textContent = r.err; return; }
-    if (r.type !== 'FLY') { errEl.textContent = `Expected a FLY run, got: "${r.type}"`; return; }
+    if (r.err)           { errEl.textContent = r.err;                            return; }
+    if (r.type !== 'FLY'){ errEl.textContent = `Expected a FLY run, got "${r.type}"`; return; }
   }
 
   flyRuns.forEach(fly => resultsEl.appendChild(renderSection(atm, fly)));
@@ -450,10 +570,9 @@ function calculate() {
 // ── Wire-up ───────────────────────────────────────────────────────────────
 
 document.getElementById('btn-calc').addEventListener('click', calculate);
-
-['ta-atm', 'ta-fly'].forEach(id => {
-  document.getElementById(id).addEventListener('paste', () => setTimeout(calculate, 0));
-});
+['ta-atm','ta-fly'].forEach(id =>
+  document.getElementById(id).addEventListener('paste', () => setTimeout(calculate, 0))
+);
 
 // ── Pre-fill example data ─────────────────────────────────────────────────
 
