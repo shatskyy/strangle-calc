@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strangle Calculator</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #1a1a2e;
+  color: #c8ccd4;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  padding: 16px 20px;
+  min-height: 100vh;
+}
+
+h1 {
+  color: #5b8de8;
+  font-size: 13px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #1e2240;
+  padding-bottom: 8px;
+}
+
+/* ── Input panel ── */
+.input-panel {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ta-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ta-label {
+  color: #4a6080;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+textarea {
+  background: #0f0f1e;
+  border: 1px solid #1e2240;
+  color: #d0d8e8;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 7px 9px;
+  resize: vertical;
+  height: 190px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+textarea:focus { border-color: #3a5090; }
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+button.calc-btn {
+  background: #1e2c60;
+  border: 1px solid #3a5090;
+  color: #7aabff;
+  cursor: pointer;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 5px 18px;
+  text-transform: uppercase;
+  transition: background 0.12s;
+}
+button.calc-btn:hover { background: #2a3d80; }
+button.calc-btn:active { background: #354ca0; }
+
+.error-msg {
+  color: #e05050;
+  font-size: 11px;
+}
+
+/* ── Results ── */
+.results { display: flex; flex-direction: column; gap: 22px; }
+
+.delta-section {}
+
+.section-title {
+  color: #4a6080;
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+/* ── Table ── */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+thead tr.group-row th {
+  background: #0c0c1a;
+  color: #3a5070;
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 3px 8px;
+  text-align: center;
+  text-transform: uppercase;
+  border-bottom: 1px solid #1a1a30;
+}
+thead tr.group-row th.g-atm   { color: #4a7080; border-bottom-color: #2a3050; }
+thead tr.group-row th.g-fly   { color: #4a6090; border-bottom-color: #2a3060; }
+thead tr.group-row th.g-strng { color: #208080; border-bottom-color: #1a4040; }
+
+thead tr.col-row th {
+  background: #0f0f20;
+  border-bottom: 1px solid #1e2240;
+  color: #344060;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  text-align: right;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+thead tr.col-row th.col-tenor { text-align: left; }
+
+tbody tr { border-bottom: 1px solid #13132a; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover td { background: #141428; }
+
+tbody tr.crossed td { background: #2a1a10; }
+tbody tr.crossed td.col-tenor { color: #e08030; }
+
+td {
+  padding: 3px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+td.col-tenor {
+  color: #5070a0;
+  text-align: left;
+  min-width: 42px;
+}
+
+.v-src  { color: #e8e8f0; }
+.v-calc { color: #00c8c8; }
+.v-none { color: #252540; }
+
+/* ── Output block ── */
+.output-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.output-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.output-label {
+  color: #344060;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+button.copy-btn {
+  background: transparent;
+  border: 1px solid #1e3050;
+  color: #3a6090;
+  cursor: pointer;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 2px 10px;
+  text-transform: uppercase;
+  transition: all 0.12s;
+}
+button.copy-btn:hover { border-color: #3a5090; color: #5a90c0; }
+button.copy-btn.copied { border-color: #206040; color: #30c060; }
+
+.output-text {
+  background: #0c0c1a;
+  border: 1px solid #1a1a30;
+  color: #5090a0;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 7px 9px;
+  white-space: pre;
+}
+</style>
+</head>
+<body>
+
+<h1>FX Strangle Calculator</h1>
+
+<div class="input-panel">
+  <div class="ta-wrap">
+    <div class="ta-label">ATM Run</div>
+    <textarea id="ta-atm" spellcheck="false" placeholder="Paste ATM run here&#10;e.g. USD/CHF NYK ATM&#10;1M 6.025/6.6&#10;..."></textarea>
+  </div>
+  <div class="ta-wrap">
+    <div class="ta-label">Fly Run(s) — paste one or two deltas</div>
+    <textarea id="ta-fly" spellcheck="false" placeholder="Paste fly run(s) here&#10;e.g. USD/CHF NYK 10D FLY&#10;1M 0.475/0.725&#10;...&#10;&#10;Separate two deltas with a blank line"></textarea>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="calc-btn" id="btn-calc">Calculate</button>
+  <span class="error-msg" id="err"></span>
+</div>
+
+<div class="results" id="results"></div>
+
+<script>
+const TENOR_ORDER = ['1W','2W','3W','1M','2M','3M','4M','5M','6M','9M','1Y','18M','2Y','3Y','5Y'];
+const TENOR_RANK = Object.fromEntries(TENOR_ORDER.map((t, i) => [t, i]));
+
+function tenorRank(t) {
+  const r = TENOR_RANK[t.toUpperCase()];
+  return r !== undefined ? r : 999;
+}
+
+// ── Parser ────────────────────────────────────────────────────────────────
+
+function parseRun(text) {
+  const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return null;
+
+  const header = lines[0];
+  const ccyM = header.match(/([A-Z]{3}\/[A-Z]{3})/i);
+  if (!ccyM) return { err: `No currency pair found in: "${header}"` };
+
+  const ccy = ccyM[1].toUpperCase();
+  const cutM = header.match(/\b([A-Z]{3})\b/gi)
+    ?.map(s => s.toUpperCase())
+    .find(s => s !== ccy.split('/')[0] && s !== ccy.split('/')[1]);
+  const cut = cutM || '';
+
+  const flyM  = header.match(/\b(\d+D)\s+FLY\b/i);
+  const atmM  = header.match(/\bATM\b/i);
+
+  let type, delta;
+  if (atmM)      { type = 'ATM'; delta = null; }
+  else if (flyM) { type = 'FLY'; delta = flyM[1].toUpperCase(); }
+  else return { err: `Unrecognised structure in header: "${header}"` };
+
+  const tenorRe = /^([0-9]+[DWMYdwmy])\s+([0-9.]+)\s*\/\s*([0-9.]+)/;
+  const tenors  = {};
+  for (let i = 1; i < lines.length; i++) {
+    const m = lines[i].match(tenorRe);
+    if (m) tenors[m[1].toUpperCase()] = { bid: +m[2], offer: +m[3] };
+  }
+
+  return { ccy, cut, type, delta, tenors };
+}
+
+function parseFlyBlock(text) {
+  // Support two runs separated by a blank line
+  return text.trim()
+    .split(/\n[ \t]*\n/)
+    .map(b => b.trim())
+    .filter(Boolean)
+    .map(parseRun)
+    .filter(Boolean);
+}
+
+// ── Formatting ────────────────────────────────────────────────────────────
+
+function fmt(v) {
+  // Always 3dp for derived values; for display consistency
+  return v.toFixed(3);
+}
+
+function buildOutputText(ccy, cut, delta, rows) {
+  const header = `${ccy} ${cut} ${delta} STRANGLE`;
+  const lines  = rows
+    .filter(r => r.sb !== null && r.so !== null)
+    .map(r => `${r.tenor.padEnd(4)} ${fmt(r.sb)}/${fmt(r.so)}`);
+  return [header, ...lines].join('\n');
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+
+function renderSection(atm, fly) {
+  const allTenors = [...new Set([
+    ...Object.keys(atm.tenors),
+    ...Object.keys(fly.tenors)
+  ])].sort((a, b) => tenorRank(a) - tenorRank(b));
+
+  // Build row data
+  const rows = allTenors.map(tenor => {
+    const a = atm.tenors[tenor];
+    const f = fly.tenors[tenor];
+    const sb = (a && f) ? f.offer + a.bid   : null;
+    const so = (a && f) ? f.bid   + a.offer : null;
+    return { tenor, a, f, sb, so };
+  });
+
+  const section = document.createElement('div');
+  section.className = 'delta-section';
+
+  const title = document.createElement('div');
+  title.className = 'section-title';
+  title.textContent = `${atm.ccy} ${atm.cut} · ${fly.delta} strangle`;
+  section.appendChild(title);
+
+  // ── Table
+  const table = document.createElement('table');
+
+  // Group header row
+  const thead = table.createTHead();
+  const gRow  = thead.insertRow();
+  gRow.className = 'group-row';
+
+  const thTenor = document.createElement('th');
+  thTenor.rowSpan = 2;
+  thTenor.style.textAlign = 'left';
+  gRow.appendChild(thTenor);
+
+  [['ATM','g-atm',2], ['FLY','g-fly',2], ['STRANGLE','g-strng',2]].forEach(([label, cls, span]) => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    th.colSpan = span;
+    th.className = cls;
+    gRow.appendChild(th);
+  });
+
+  // Column header row
+  const cRow = thead.insertRow();
+  cRow.className = 'col-row';
+  ['Bid','Offer','Bid','Offer','Bid','Offer'].forEach(label => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    cRow.appendChild(th);
+  });
+
+  // Body
+  const tbody = table.createTBody();
+  rows.forEach(({ tenor, a, f, sb, so }) => {
+    const tr = tbody.insertRow();
+    // Crossed market check: bid >= offer in any pair
+    const atmCrossed = a && a.bid >= a.offer;
+    const flyCrossed = f && f.bid >= f.offer;
+    const stCrossed  = sb !== null && sb >= so;
+    if (atmCrossed || flyCrossed || stCrossed) tr.className = 'crossed';
+
+    const cell = (text, cls) => {
+      const td = tr.insertCell();
+      td.textContent = text;
+      td.className = cls;
+      return td;
+    };
+
+    cell(tenor, 'col-tenor');
+    cell(a ? fmt(a.bid)   : '—', a ? 'v-src' : 'v-none');
+    cell(a ? fmt(a.offer) : '—', a ? 'v-src' : 'v-none');
+    cell(f ? fmt(f.bid)   : '—', f ? 'v-src' : 'v-none');
+    cell(f ? fmt(f.offer) : '—', f ? 'v-src' : 'v-none');
+    cell(sb !== null ? fmt(sb) : '—', sb !== null ? 'v-calc' : 'v-none');
+    cell(so !== null ? fmt(so) : '—', so !== null ? 'v-calc' : 'v-none');
+  });
+
+  section.appendChild(table);
+
+  // ── Output block
+  const outText = buildOutputText(atm.ccy, atm.cut, fly.delta, rows);
+  const outWrap = document.createElement('div');
+  outWrap.className = 'output-wrap';
+
+  const outHeader = document.createElement('div');
+  outHeader.className = 'output-header';
+
+  const outLabel = document.createElement('span');
+  outLabel.className = 'output-label';
+  outLabel.textContent = 'Output';
+  outHeader.appendChild(outLabel);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'copy-btn';
+  copyBtn.textContent = 'Copy';
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(outText).then(() => {
+      copyBtn.textContent = 'Copied';
+      copyBtn.classList.add('copied');
+      setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.classList.remove('copied'); }, 1500);
+    });
+  });
+  outHeader.appendChild(copyBtn);
+
+  const pre = document.createElement('div');
+  pre.className = 'output-text';
+  pre.textContent = outText;
+
+  outWrap.appendChild(outHeader);
+  outWrap.appendChild(pre);
+  section.appendChild(outWrap);
+
+  return section;
+}
+
+// ── Calculate ─────────────────────────────────────────────────────────────
+
+function calculate() {
+  const errEl     = document.getElementById('err');
+  const resultsEl = document.getElementById('results');
+  errEl.textContent = '';
+  resultsEl.innerHTML = '';
+
+  const atmText = document.getElementById('ta-atm').value;
+  const flyText = document.getElementById('ta-fly').value;
+
+  if (!atmText.trim() && !flyText.trim()) return;
+
+  if (!atmText.trim()) { errEl.textContent = 'Paste an ATM run on the left.'; return; }
+  if (!flyText.trim()) { errEl.textContent = 'Paste at least one Fly run on the right.'; return; }
+
+  const atm = parseRun(atmText);
+  if (!atm)       { errEl.textContent = 'Could not parse ATM input.'; return; }
+  if (atm.err)    { errEl.textContent = atm.err; return; }
+  if (atm.type !== 'ATM') { errEl.textContent = 'Left textarea must contain the ATM run.'; return; }
+
+  const flyRuns = parseFlyBlock(flyText);
+  if (!flyRuns.length) { errEl.textContent = 'Could not parse any Fly runs.'; return; }
+
+  for (const r of flyRuns) {
+    if (r.err) { errEl.textContent = r.err; return; }
+    if (r.type !== 'FLY') { errEl.textContent = `Expected a FLY run, got: "${r.type}"`; return; }
+  }
+
+  flyRuns.forEach(fly => resultsEl.appendChild(renderSection(atm, fly)));
+}
+
+// ── Wire-up ───────────────────────────────────────────────────────────────
+
+document.getElementById('btn-calc').addEventListener('click', calculate);
+
+['ta-atm', 'ta-fly'].forEach(id => {
+  document.getElementById(id).addEventListener('paste', () => setTimeout(calculate, 0));
+});
+
+// ── Pre-fill example data ─────────────────────────────────────────────────
+
+document.getElementById('ta-atm').value =
+`USD/CHF NYK ATM
+1W 5.275/6.925
+2W 5.5/6.6
+1M 6.025/6.6
+2M 6.35/6.875
+3M 6.5/7.025
+6M 6.675/7.15
+9M 6.925/7.4
+1Y 7.175/7.675`;
+
+document.getElementById('ta-fly').value =
+`USD/CHF NYK 10D FLY
+1M 0.475/0.725
+2M 0.575/0.8
+3M 0.65/0.875
+6M 0.85/0.925
+9M 0.925/1.15
+1Y 1.025/1.25`;
+
+calculate();
+</script>
+</body>
+</html>
