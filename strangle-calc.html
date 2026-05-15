@@ -486,12 +486,14 @@ function renderSection(atm, fly) {
     for (const [field, inp] of Object.entries(cells)) {
       inp.addEventListener('input', () => {
         if (field === 'strBid' || field === 'strOffer') {
-          row.mode = 'FLY';
+          row.mode = 'FLY';   // strangle edited → derive fly
         } else if (field === 'flyBid' || field === 'flyOffer') {
-          row.mode = 'STR';
+          row.mode = 'STR';   // fly edited → derive strangle
         } else {
-          // ATM edit: keep current derive target; if ATM was derived, revert to STR default
-          if (row.mode === 'ATM') row.mode = 'STR';
+          // ATM edited: if strangle is already fixed (FLY mode), keep strangle+fly as
+          // sources and derive ATM; otherwise recompute strangle from ATM+fly (STR mode)
+          if (row.mode === 'FLY') row.mode = 'ATM';
+          else                    row.mode = 'STR';
         }
         solveAndRefresh(row, sectionCtx);
       });
@@ -570,9 +572,25 @@ function calculate() {
 // ── Wire-up ───────────────────────────────────────────────────────────────
 
 document.getElementById('btn-calc').addEventListener('click', calculate);
-['ta-atm','ta-fly'].forEach(id =>
-  document.getElementById(id).addEventListener('paste', () => setTimeout(calculate, 0))
-);
+
+let _calcTimer = null;
+let _pasteActive = false;
+['ta-atm','ta-fly'].forEach(id => {
+  const el = document.getElementById(id);
+  // Paste: run immediately after the value is committed (next tick)
+  el.addEventListener('paste', () => {
+    _pasteActive = true;
+    clearTimeout(_calcTimer);
+    _calcTimer = setTimeout(() => { _pasteActive = false; calculate(); }, 0);
+  });
+  // Typing: debounce so we don't recalculate on every keystroke;
+  // skip if a paste is already queued (input fires right after paste)
+  el.addEventListener('input', () => {
+    if (_pasteActive) return;
+    clearTimeout(_calcTimer);
+    _calcTimer = setTimeout(calculate, 300);
+  });
+});
 
 // ── Pre-fill example data ─────────────────────────────────────────────────
 
