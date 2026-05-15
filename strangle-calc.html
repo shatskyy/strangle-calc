@@ -313,6 +313,37 @@ button.copy-btn.copied { border-color: #206040; color: #30c060; }
   padding: 7px 9px;
   white-space: pre;
 }
+
+/* ── Crossed implied fly ── */
+.crossed-fly-warn {
+  color: #d08020;
+  cursor: help;
+  font-size: 10px;
+  margin-left: 5px;
+}
+
+button.solve-atm-btn {
+  background: transparent;
+  border: 1px solid #1e3050;
+  color: #3a6090;
+  cursor: pointer;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 9px;
+  letter-spacing: 0;
+  margin-left: 4px;
+  padding: 0 4px;
+  transition: all 0.12s;
+  vertical-align: middle;
+}
+button.solve-atm-btn:hover { border-color: #3a6090; color: #6a90d0; }
+button.solve-atm-btn.active { border-color: #2060c0; color: #4090e0; }
+
+tbody tr.crossed-implied-fly td           { background: #1e1508; }
+tbody tr.crossed-implied-fly:hover td     { background: #252010; }
+tbody tr.crossed-implied-fly td.col-tenor { color: #d08020; }
+
+.copy-btn.warn-cross       { border-color: #604010; color: #c08020; }
+.copy-btn.warn-cross:hover { border-color: #c08020; color: #e0a030; }
 </style>
 </head>
 <body>
@@ -353,7 +384,7 @@ const {
   tenorRank, isStrictNumber, strictNumber, cellState, fmt,
   parseRun, parseFlyBlock, parseATM,
   validateCompatibility,
-  SOURCE_FIELDS: CORE_SOURCE_FIELDS, solve, rowFlags,
+  SOURCE_FIELDS: CORE_SOURCE_FIELDS, solve, rowFlags, impliedCrossDetails,
   formatStrangleOutput,
 } = window.StrangleCore;
 
@@ -415,8 +446,9 @@ function updateResetBtn(row) {
 }
 
 // Apply v-src / v-calc / v-none / v-invalid base classes plus
-// v-neg-err / v-neg-warn overlays. Also updates the crossed-row flag and
-// mode indicator. No flashing — that's done by the caller.
+// v-neg-err / v-neg-warn overlays. Also updates the crossed-row flag,
+// mode indicator, and crossed-implied-fly warning badge.
+// No flashing — that's done by the caller.
 function recolorRow(row) {
   const c = row.cells;
   const srcSet = SOURCE_FIELDS[row.mode];
@@ -443,12 +475,50 @@ function recolorRow(row) {
     const overlay = (state === 'ok') ? negByField[field] : null;
     inp.className = overlay ? `${base} ${overlay}` : base;
   }
+
+  // Crossed implied fly: strangle editing (FLY mode) produced a crossed fly.
+  // Give it amber styling distinct from the generic red crossed-market row.
+  const isCrossedImpliedFly = row.mode === 'FLY' && flags.crossedFly;
   row.tr.classList.toggle(
     'crossed',
-    flags.crossedATM || flags.crossedFly || flags.crossedStr
+    flags.crossedATM || flags.crossedStr || (flags.crossedFly && !isCrossedImpliedFly)
   );
+  row.tr.classList.toggle('crossed-implied-fly', isCrossedImpliedFly);
+
   row.tdTenor.classList.toggle('mode-fly', row.mode === 'FLY');
   row.tdTenor.classList.toggle('mode-atm', row.mode === 'ATM');
+
+  // Warning badge — only in FLY mode with a crossed fly result.
+  if (row.warnBadge) {
+    row.warnBadge.hidden = !isCrossedImpliedFly;
+    if (isCrossedImpliedFly) {
+      const d = impliedCrossDetails(vals);
+      if (d) {
+        row.warnBadge.title = [
+          'Crossed implied fly: strangle spread is narrower than ATM spread.',
+          '',
+          `fly_bid   = strBid − atmBid   = ${fmt(d.strBid)} − ${fmt(d.atmBid)} = ${fmt(d.flyBid)}`,
+          `fly_offer = strOffer − atmOffer = ${fmt(d.strOffer)} − ${fmt(d.atmOffer)} = ${fmt(d.flyOffer)}`,
+          '',
+          `strangle spread = ${fmt(d.strOffer)} − ${fmt(d.strBid)} = ${fmt(d.strSpread)}`,
+          `ATM spread      = ${fmt(d.atmOffer)} − ${fmt(d.atmBid)} = ${fmt(d.atmSpread)}`,
+          `strangle spread (${fmt(d.strSpread)}) < ATM spread (${fmt(d.atmSpread)}) → fly bid ≥ fly offer`,
+          '',
+          'Options:',
+          '• Raise strangle offer',
+          '• Lower strangle bid',
+          '• Widen strangle market (do both)',
+          '• Click →ATM to solve for ATM from fly + strangle',
+        ].join('\n');
+      }
+    }
+  }
+
+  // Solve-for-ATM button is available whenever strangle is driving the row (FLY mode).
+  if (row.solveAtmBtn) {
+    row.solveAtmBtn.hidden = row.mode !== 'FLY';
+    row.solveAtmBtn.classList.toggle('active', row.mode === 'ATM');
+  }
 }
 
 function solveAndRefresh(row, sectionCtx) {
@@ -477,13 +547,29 @@ function solveAndRefresh(row, sectionCtx) {
   updateOutput(sectionCtx);
 }
 
-function updateOutput({ ccy, cut, delta, rows, outPre }) {
+function updateOutput({ ccy, cut, delta, rows, outPre, copyBtn }) {
   const outRows = rows.map(row => ({
     tenor: row.tenor,
     strBid: readV(row.cells.strBid),
     strOffer: readV(row.cells.strOffer),
   }));
   outPre.textContent = formatStrangleOutput(ccy, cut, delta, outRows);
+
+  if (!copyBtn || copyBtn.classList.contains('copied')) return;
+  const hasCrossed = rows.some(row => {
+    const v = {
+      atmBid: readV(row.cells.atmBid), atmOffer: readV(row.cells.atmOffer),
+      flyBid: readV(row.cells.flyBid), flyOffer: readV(row.cells.flyOffer),
+      strBid: readV(row.cells.strBid), strOffer: readV(row.cells.strOffer),
+    };
+    const f = rowFlags(v);
+    return f.crossedATM || f.crossedFly || f.crossedStr;
+  });
+  copyBtn.classList.toggle('warn-cross', hasCrossed);
+  copyBtn.title = hasCrossed
+    ? 'One or more rows have crossed implied values — review before use'
+    : '';
+  copyBtn.textContent = hasCrossed ? '⚠ Copy' : 'Copy';
 }
 
 // ── Render ────────────────────────────────────────────────────────────────
@@ -495,7 +581,7 @@ function renderSection(atm, fly) {
   ])].sort((a, b) => tenorRank(a) - tenorRank(b));
 
   // Section context holds everything needed to refresh the output block.
-  const sectionCtx = { ccy: atm.ccy, cut: atm.cut, delta: fly.delta, rows: [], outPre: null };
+  const sectionCtx = { ccy: atm.ccy, cut: atm.cut, delta: fly.delta, rows: [], outPre: null, copyBtn: null };
 
   const section = document.createElement('div');
   section.className = 'delta-section';
@@ -590,7 +676,22 @@ function renderSection(atm, fly) {
 
     const tdTenor = tr.insertCell();
     tdTenor.className = 'col-tenor';
-    tdTenor.textContent = tenor;
+    const tenorSpan = document.createElement('span');
+    tenorSpan.textContent = tenor;
+    tdTenor.appendChild(tenorSpan);
+
+    const warnBadge = document.createElement('span');
+    warnBadge.className = 'crossed-fly-warn';
+    warnBadge.textContent = '⚠';
+    warnBadge.hidden = true;
+    tdTenor.appendChild(warnBadge);
+
+    const solveAtmBtn = document.createElement('button');
+    solveAtmBtn.className = 'solve-atm-btn';
+    solveAtmBtn.textContent = '→ATM';
+    solveAtmBtn.title = 'Solve for ATM using fly + strangle as inputs';
+    solveAtmBtn.hidden = true;
+    tdTenor.appendChild(solveAtmBtn);
 
     // makeInp: appends a td+input to tr, returns the input element.
     // srcStr: original pasted string (preserves "5.5" vs "5.500"); null for computed values.
@@ -616,7 +717,7 @@ function renderSection(atm, fly) {
       strOffer: makeInp(initSo, null, false),
     };
 
-    const row = { tenor, mode: 'STR', cells, tr, tdTenor, resetBtn, originals, origStrings };
+    const row = { tenor, mode: 'STR', cells, tr, tdTenor, resetBtn, warnBadge, solveAtmBtn, originals, origStrings };
     sectionCtx.rows.push(row);
 
     // Initial classes: crossed-row flag + negative-vol overlays
@@ -635,6 +736,12 @@ function renderSection(atm, fly) {
       solveAndRefresh(row, sectionCtx);  // derived cells also flash inside
     });
     updateResetBtn(row);   // start dimmed (all rows pristine on initial render)
+
+    // Solve for ATM: user explicitly switches this row to derive ATM from fly + strangle.
+    solveAtmBtn.addEventListener('click', () => {
+      row.mode = 'ATM';
+      solveAndRefresh(row, sectionCtx);
+    });
 
     // Event wiring: mode update then solve on every keystroke
     for (const [field, inp] of Object.entries(cells)) {
@@ -740,6 +847,7 @@ function renderSection(atm, fly) {
   const copyBtn = document.createElement('button');
   copyBtn.className = 'copy-btn';
   copyBtn.textContent = 'Copy';
+  sectionCtx.copyBtn = copyBtn;   // register before updateOutput so initial state is set
 
   const pre = document.createElement('div');
   pre.className = 'output-text';
@@ -747,10 +855,35 @@ function renderSection(atm, fly) {
   updateOutput(sectionCtx);   // initial render
 
   copyBtn.addEventListener('click', () => {
+    const crossedTenors = sectionCtx.rows
+      .filter(row => {
+        const v = {
+          atmBid: readV(row.cells.atmBid), atmOffer: readV(row.cells.atmOffer),
+          flyBid: readV(row.cells.flyBid), flyOffer: readV(row.cells.flyOffer),
+          strBid: readV(row.cells.strBid), strOffer: readV(row.cells.strOffer),
+        };
+        const f = rowFlags(v);
+        return f.crossedATM || f.crossedFly || f.crossedStr;
+      })
+      .map(r => r.tenor);
+
+    if (crossedTenors.length > 0) {
+      const ok = window.confirm(
+        `Crossed implied values in: ${crossedTenors.join(', ')}.\n\n` +
+        `Review highlighted rows before using this output in a live workflow.\n\n` +
+        `Copy anyway?`
+      );
+      if (!ok) return;
+    }
+
     navigator.clipboard.writeText(pre.textContent).then(() => {
-      copyBtn.textContent = 'Copied';
+      const prefix = copyBtn.classList.contains('warn-cross') ? '⚠ ' : '';
+      copyBtn.textContent = prefix + 'Copied';
       copyBtn.classList.add('copied');
-      setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.classList.remove('copied'); }, 1500);
+      setTimeout(() => {
+        copyBtn.classList.remove('copied');
+        updateOutput(sectionCtx);   // restore label and warn state
+      }, 1500);
     });
   });
 

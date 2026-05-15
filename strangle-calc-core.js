@@ -278,6 +278,21 @@
     };
   }
 
+  // Returns diagnostic data when fly values are crossed (flyBid >= flyOffer).
+  // All six values must be present; returns null if any is missing or fly is not crossed.
+  function impliedCrossDetails(vals) {
+    const has = v => v !== null && v !== undefined && !Number.isNaN(v);
+    const { atmBid, atmOffer, strBid, strOffer, flyBid, flyOffer } = vals;
+    if (!has(atmBid) || !has(atmOffer) || !has(strBid) || !has(strOffer) ||
+        !has(flyBid) || !has(flyOffer)) return null;
+    if (flyBid < flyOffer) return null;
+    return {
+      atmBid, atmOffer, strBid, strOffer, flyBid, flyOffer,
+      atmSpread: atmOffer - atmBid,
+      strSpread: strOffer - strBid,
+    };
+  }
+
   // ── Output formatter ────────────────────────────────────────────────────
   // rows: array of { tenor, strBid, strOffer }. Rows whose strangle is
   // missing (null/undefined) are skipped — that produces blank output for
@@ -298,7 +313,7 @@
     isStrictNumber, strictNumber, cellState, fmt,
     parseRun, parseFlyBlock, parseATM,
     validateCompatibility,
-    SOURCE_FIELDS, solve, rowFlags,
+    SOURCE_FIELDS, solve, rowFlags, impliedCrossDetails,
     formatStrangleOutput,
   };
 }));

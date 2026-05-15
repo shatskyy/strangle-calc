@@ -392,6 +392,67 @@ group('row flags', () => {
   });
 });
 
+// ── Crossed implied fly ───────────────────────────────────────────────────
+group('crossed implied fly', () => {
+  test('FLY solve with narrow strangle spread produces crossed fly', () => {
+    // ATM spread = 0.575, strangle spread = 0.500 → fly spread = -0.075 (crossed)
+    const out = core.solve('FLY', {
+      atmBid: 6.025, atmOffer: 6.600,
+      strBid: 6.500, strOffer: 7.000,
+    });
+    assertClose(out.flyBid,   0.475);   // 6.500 - 6.025
+    assertClose(out.flyOffer, 0.400);   // 7.000 - 6.600
+  });
+
+  test('crossed fly is flagged by rowFlags', () => {
+    const vals = core.solve('FLY', {
+      atmBid: 6.025, atmOffer: 6.600,
+      strBid: 6.500, strOffer: 7.000,
+    });
+    assertEqual(core.rowFlags(vals).crossedFly, true);
+  });
+
+  test('ATM values are unchanged when solve mode is FLY', () => {
+    const out = core.solve('FLY', {
+      atmBid: 6.025, atmOffer: 6.600,
+      strBid: 6.500, strOffer: 7.000,
+    });
+    assertClose(out.atmBid,   6.025, 'atmBid should be preserved as source');
+    assertClose(out.atmOffer, 6.600, 'atmOffer should be preserved as source');
+  });
+
+  test('impliedCrossDetails returns data when fly is crossed', () => {
+    const vals = core.solve('FLY', {
+      atmBid: 6.025, atmOffer: 6.600,
+      strBid: 6.500, strOffer: 7.000,
+    });
+    const d = core.impliedCrossDetails(vals);
+    assert(d !== null, 'expected non-null cross details');
+    assertClose(d.flyBid,    0.475);
+    assertClose(d.flyOffer,  0.400);
+    assertClose(d.atmSpread, 0.575);
+    assertClose(d.strSpread, 0.500);
+  });
+
+  test('impliedCrossDetails returns null when fly is not crossed', () => {
+    const vals = core.solve('FLY', {
+      atmBid: 6.025, atmOffer: 6.600,
+      strBid: 6.500, strOffer: 7.325,
+    });
+    assertEqual(core.impliedCrossDetails(vals), null);
+  });
+
+  test('switching to ATM mode recomputes ATM from fly + strangle', () => {
+    // User sees crossed fly (0.475/0.400), adjusts flyOffer to 0.600, then clicks →ATM
+    const out = core.solve('ATM', {
+      flyBid: 0.475, flyOffer: 0.600,
+      strBid: 6.500, strOffer: 7.000,
+    });
+    assertClose(out.atmBid,   6.025);   // 6.500 - 0.475
+    assertClose(out.atmOffer, 6.400);   // 7.000 - 0.600
+  });
+});
+
 // ── Output formatter ──────────────────────────────────────────────────────
 group('output formatter', () => {
   test('formats header and tenor lines, skips rows with missing strangle', () => {
