@@ -40,12 +40,32 @@ h1 {
   gap: 4px;
 }
 
+.ta-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .ta-label {
   color: #4a6080;
   font-size: 10px;
   letter-spacing: 2px;
   text-transform: uppercase;
 }
+
+button.clr-btn {
+  background: transparent;
+  border: 1px solid #141e30;
+  color: #2a4060;
+  cursor: pointer;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 1px 7px;
+  text-transform: uppercase;
+  transition: all 0.12s;
+}
+button.clr-btn:hover { border-color: #1e3050; color: #3a6090; }
 
 textarea {
   background: #0f0f1e;
@@ -133,7 +153,7 @@ thead tr.col-row th {
   text-transform: uppercase;
   white-space: nowrap;
 }
-thead tr.col-row th:first-child { text-align: left; }
+thead tr.col-row th.col-tenor-hdr { text-align: left; }
 
 tbody tr { border-bottom: 1px solid #13132a; }
 tbody tr:last-child { border-bottom: none; }
@@ -144,6 +164,26 @@ tbody tr.crossed td            { background: #251810; }
 tbody tr.crossed:hover td      { background: #2d1e12; }
 tbody tr.crossed td.col-tenor  { color: #e08030; }
 
+/* ── Reset button column ── */
+td.col-reset, thead th.col-reset {
+  width: 20px;
+  padding: 0 3px;
+  text-align: center;
+}
+
+button.reset-btn {
+  background: transparent;
+  border: none;
+  color: #252545;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color 0.12s;
+}
+button.reset-btn.dirty { color: #6060a0; }
+button.reset-btn.dirty:hover { color: #9090e0; }
+
 td {
   padding: 2px 4px;
   white-space: nowrap;
@@ -153,8 +193,12 @@ td.col-tenor {
   color: #5070a0;
   text-align: left;
   min-width: 42px;
-  padding: 2px 10px 2px 4px;
+  padding: 2px 10px 2px 6px;
+  border-left: 3px solid transparent;
 }
+/* ── Mode indicator on tenor cell ── */
+td.col-tenor.mode-fly { border-left-color: #c08020; }
+td.col-tenor.mode-atm { border-left-color: #2060c0; }
 
 /* ── Editable vol inputs ── */
 td input {
@@ -176,6 +220,39 @@ td input::placeholder { color: #252545; }
 .v-src  { color: #e8e8f0; }
 .v-calc { color: #4fc3f7; }
 .v-none { color: #252545; }
+
+/* ── Shift row ── */
+thead tr.shift-row th {
+  background: #0c0c1a;
+  padding: 3px 4px;
+  border-top: 1px solid #1a1a30;
+}
+thead tr.shift-row th.shift-label {
+  color: #2a3a50;
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-align: left;
+  text-transform: uppercase;
+  padding-left: 4px;
+}
+thead tr.shift-row th input.shift-inp {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #1e2240;
+  color: #3a5070;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  outline: none;
+  padding: 1px 2px;
+  text-align: right;
+  width: 58px;
+  transition: border-bottom-color 0.1s;
+}
+thead tr.shift-row th input.shift-inp:focus {
+  border-bottom-color: #3a5090;
+  color: #7090b0;
+}
+thead tr.shift-row th input.shift-inp::placeholder { color: #1e2840; }
 
 /* ── Output block ── */
 .output-wrap {
@@ -230,12 +307,18 @@ button.copy-btn.copied { border-color: #206040; color: #30c060; }
 
 <div class="input-panel">
   <div class="ta-wrap">
-    <div class="ta-label">ATM Run</div>
+    <div class="ta-label-row">
+      <div class="ta-label">ATM Run</div>
+      <button class="clr-btn" id="clr-atm">CLR</button>
+    </div>
     <textarea id="ta-atm" spellcheck="false"
       placeholder="Paste ATM run here&#10;e.g. USD/CHF NYK ATM&#10;1M 6.025/6.6&#10;..."></textarea>
   </div>
   <div class="ta-wrap">
-    <div class="ta-label">Fly Run(s) — paste one or two deltas</div>
+    <div class="ta-label-row">
+      <div class="ta-label">Fly Run(s) — paste one or two deltas</div>
+      <button class="clr-btn" id="clr-fly">CLR</button>
+    </div>
     <textarea id="ta-fly" spellcheck="false"
       placeholder="Paste fly run(s) here&#10;e.g. USD/CHF NYK 10D FLY&#10;1M 0.475/0.725&#10;...&#10;&#10;Separate two deltas with a blank line"></textarea>
   </div>
@@ -325,6 +408,26 @@ function fmt(v) { return v.toFixed(3); }
 function readV(inp)      { const v = parseFloat(inp.value); return isNaN(v) ? null : v; }
 function writeV(inp, v)  { inp.value = v !== null ? fmt(v) : ''; }
 
+// ── Reset button helpers ───────────────────────────────────────────────────
+
+function isPristine(row) {
+  if (row.mode !== 'STR') return false;
+  for (const field of ['atmBid','atmOffer','flyBid','flyOffer']) {
+    const cur  = readV(row.cells[field]);
+    const orig = row.originals[field];
+    if (cur === null && orig === null) continue;
+    if (cur === null || orig === null) return false;
+    if (Math.abs(cur - orig) > 1e-9) return false;
+  }
+  return true;
+}
+
+function updateResetBtn(row) {
+  const p = isPristine(row);
+  row.resetBtn.classList.toggle('dirty', !p);
+  row.resetBtn.disabled = p;
+}
+
 function solveAndRefresh(row, sectionCtx) {
   const c = row.cells;
 
@@ -372,6 +475,13 @@ function solveAndRefresh(row, sectionCtx) {
     (sb !== null && so !== null && sb >= so);
   row.tr.classList.toggle('crossed', crossed);
 
+  // Mode indicator on tenor cell
+  row.tdTenor.classList.toggle('mode-fly', row.mode === 'FLY');
+  row.tdTenor.classList.toggle('mode-atm', row.mode === 'ATM');
+
+  // Reset button dirty state
+  updateResetBtn(row);
+
   updateOutput(sectionCtx);
 }
 
@@ -412,9 +522,11 @@ function renderSection(atm, fly) {
 
   const gRow = thead.insertRow();
   gRow.className = 'group-row';
-  const thSpan = document.createElement('th');
-  thSpan.rowSpan = 2;
-  gRow.appendChild(thSpan);
+  // Leading blank th spanning all 3 thead rows (reset col + shift row)
+  const thReset = document.createElement('th');
+  thReset.rowSpan = 3;
+  thReset.className = 'col-reset';
+  gRow.appendChild(thReset);
   [['ATM','g-atm',2], ['FLY','g-fly',2], ['STRANGLE','g-strng',2]].forEach(([lbl,cls,span]) => {
     const th = document.createElement('th');
     th.textContent = lbl; th.colSpan = span; th.className = cls;
@@ -425,12 +537,36 @@ function renderSection(atm, fly) {
   cRow.className = 'col-row';
   const thTenor = document.createElement('th');
   thTenor.textContent = 'Tenor';
+  thTenor.className = 'col-tenor-hdr';
   cRow.appendChild(thTenor);
   ['Bid','Offer','Bid','Offer','Bid','Offer'].forEach(lbl => {
     const th = document.createElement('th');
     th.textContent = lbl;
     cRow.appendChild(th);
   });
+
+  // ── Shift row
+  const shiftRow = thead.insertRow();
+  shiftRow.className = 'shift-row';
+  const thShiftLabel = document.createElement('th');
+  thShiftLabel.className = 'shift-label';
+  thShiftLabel.textContent = 'SHIFT';
+  shiftRow.appendChild(thShiftLabel);
+
+  const FIELD_ORDER = ['atmBid','atmOffer','flyBid','flyOffer','strBid','strOffer'];
+  const shiftInputs = {};
+  for (const field of FIELD_ORDER) {
+    const th  = document.createElement('th');
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'shift-inp';
+    inp.placeholder = '±';
+    inp.autocomplete = 'off';
+    inp.spellcheck = false;
+    th.appendChild(inp);
+    shiftRow.appendChild(th);
+    shiftInputs[field] = inp;
+  }
 
   // ── Table body
   const tbody = table.createTBody();
@@ -442,7 +578,26 @@ function renderSection(atm, fly) {
     const initSb = (a && f) ? a.bid + f.offer   : null;
     const initSo = (a && f) ? a.offer + f.bid   : null;
 
+    // Snapshot original values for the reset button
+    const originals = {
+      atmBid:   a?.bid    ?? null,  atmOffer: a?.offer  ?? null,
+      flyBid:   f?.bid    ?? null,  flyOffer: f?.offer  ?? null,
+    };
+    const origStrings = {
+      atmBid:   a?.bidStr   ?? null,  atmOffer: a?.offerStr ?? null,
+      flyBid:   f?.bidStr   ?? null,  flyOffer: f?.offerStr ?? null,
+    };
+
     const tr = tbody.insertRow();
+
+    // Reset button cell — inserted first so it's cells[0]
+    const tdReset = tr.insertCell();
+    tdReset.className = 'col-reset';
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'reset-btn';
+    resetBtn.textContent = '↺';
+    resetBtn.title = 'Reset to original values';
+    tdReset.appendChild(resetBtn);
 
     const tdTenor = tr.insertCell();
     tdTenor.className = 'col-tenor';
@@ -479,8 +634,21 @@ function renderSection(atm, fly) {
       tr.classList.add('crossed');
     }
 
-    const row = { tenor, mode: 'STR', cells, tr };
+    const row = { tenor, mode: 'STR', cells, tr, tdTenor, resetBtn, originals, origStrings };
     sectionCtx.rows.push(row);
+
+    // Reset button: restore original values and re-solve in STR mode
+    resetBtn.addEventListener('click', () => {
+      row.mode = 'STR';
+      for (const field of ['atmBid','atmOffer','flyBid','flyOffer']) {
+        const s = row.origStrings[field];
+        const v = row.originals[field];
+        row.cells[field].value = s !== null ? s : (v !== null ? fmt(v) : '');
+        row.cells[field].className = v !== null ? 'v-src' : 'v-none';
+      }
+      solveAndRefresh(row, sectionCtx);
+    });
+    updateResetBtn(row);   // start dimmed (all rows pristine on initial render)
 
     // Event wiring: mode update then solve on every keystroke
     for (const [field, inp] of Object.entries(cells)) {
@@ -498,6 +666,27 @@ function renderSection(atm, fly) {
         solveAndRefresh(row, sectionCtx);
       });
     }
+  }
+
+  // ── Shift row apply logic
+  for (const [field, shiftInp] of Object.entries(shiftInputs)) {
+    shiftInp.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      const delta = parseFloat(shiftInp.value);
+      shiftInp.value = '';
+      if (isNaN(delta) || delta === 0) return;
+
+      for (const row of sectionCtx.rows) {
+        if (!SOURCE_FIELDS[row.mode].has(field)) continue;
+        const cur = readV(row.cells[field]);
+        if (cur === null) continue;
+        // Round to avoid float drift (e.g. 6.025 + 0.1 → 6.125 not 6.124999...)
+        row.cells[field].value = fmt(Math.round((cur + delta) * 1e6) / 1e6);
+      }
+      for (const row of sectionCtx.rows) {
+        solveAndRefresh(row, sectionCtx);
+      }
+    });
   }
 
   section.appendChild(table);
@@ -590,6 +779,15 @@ let _pasteActive = false;
     clearTimeout(_calcTimer);
     _calcTimer = setTimeout(calculate, 300);
   });
+});
+
+document.getElementById('clr-atm').addEventListener('click', () => {
+  document.getElementById('ta-atm').value = '';
+  calculate();
+});
+document.getElementById('clr-fly').addEventListener('click', () => {
+  document.getElementById('ta-fly').value = '';
+  calculate();
 });
 
 // ── Pre-fill example data ─────────────────────────────────────────────────
