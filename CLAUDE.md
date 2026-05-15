@@ -1,6 +1,14 @@
 # Strangle Calculator
 
-Single-file FX volatility tool (`strangle-calc.html`). No frameworks, no dependencies, no build step. Vanilla HTML/CSS/JS in one file. Dark theme.
+FX volatility desk tool. Vanilla HTML/CSS/JS. No frameworks, no dependencies, no build step. Dark theme.
+
+## File layout
+
+- `strangle-calc.html` — UI shell: markup, styles, DOM-bound interaction script. Open this directly in Chrome/Edge to use the app.
+- `strangle-calc-core.js` — pure logic (parser, validator, solver, formatter). Loaded by the HTML via `<script src="strangle-calc-core.js">` and consumed directly by the Node test runner. No DOM.
+- `tests/run.js` — Node test runner for the core module.
+
+The two production files must sit alongside each other. There is no build step — open the HTML directly.
 
 ## What It Does
 
@@ -71,9 +79,24 @@ USD/CHF NYK 10D FLY
 ### Parsing Rules
 
 - Header regex: extract ccy pair (e.g. `USD/CHF`), cut (e.g. `NYK`), structure (`ATM` or `{delta} FLY` like `10D FLY`, `25D FLY`)
-- Tenor line regex: `([0-9]+[DWMY])\s+([0-9.]+)\s*/\s*([0-9.]+)`
+- Tenor line regex (anchored, fully matched): `^([0-9]+[DWMY])\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*/\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*$`
 - Canonical tenor sort order: 1W, 2W, 3W, 1M, 2M, 3M, 4M, 5M, 6M, 9M, 1Y, 18M, 2Y, 3Y, 5Y
 - Join ATM and fly on tenor. Show blanks (empty cells) for tenors present in one run but not the other. Do NOT interpolate.
+
+### Validation Rules
+
+Errors are surfaced in the red message area above the results panel. Each error references the textarea (ATM/Fly) and 1-based line number from the original paste.
+
+- **Currency mismatch**: an ATM run and a fly run must share the same currency pair. `USD/CHF` ATM with `EUR/USD` fly is rejected and that section is not rendered.
+- **Cut mismatch**: ATM and each fly run must share the same cut. `USD/CHF NYK` ATM with `USD/CHF LDN` fly is rejected and that section is not rendered.
+- **Malformed tenor line**: any line in a run that doesn't fully match the tenor line regex is reported by line number with the original text. It is NOT silently skipped.
+- **Duplicate tenor inside a run**: rejected with the line number of the second occurrence.
+- **Duplicate fly delta**: two `{N}D FLY` blocks with the same delta are rejected; both header line numbers are reported.
+- **Strict numeric validation in editable cells**: empty is allowed. Otherwise only fully numeric values are accepted (`-0.25`, `5`, `5.`, `.5`, `6.025` — but NOT `6.5abc`, `abc`, `.`, `5e3`). Invalid cells are highlighted red and are excluded from calculations; they do not contribute parseFloat-style partial values.
+- **Negative ATM or Strangle vol**: highlighted as an error overlay (red).
+- **Negative Fly vol**: highlighted as a warning overlay (amber). Not blocked — fly can be negative under some market conventions.
+
+The compatibility check happens per fly section. Other valid fly sections are still rendered.
 
 ## Output Format
 
@@ -129,6 +152,21 @@ Reverse check (ATM + Strangle → Fly):
 
 ## Constraints
 
-- Single file only. No external CDN links, no images, no fetches.
+- No frameworks, no build step, no external CDN links, no images, no fetches.
+- Two production files (`strangle-calc.html` + `strangle-calc-core.js`) — keep them colocated.
 - No localStorage (not needed — this is a stateless calculator).
-- Must work in Chrome and Edge (desk browsers).
+- Must work in Chrome and Edge (desk browsers) by opening the HTML directly.
+
+## Testing
+
+The core module (`strangle-calc-core.js`) is pure JavaScript with no DOM access and is exercised by a small Node-based test runner.
+
+```
+node tests/run.js
+```
+
+Prints one line per test (`ok` / `FAIL`), grouped by area, with a final pass/fail count. Exit code is non-zero if any test fails. No npm install — uses only Node's built-in `require`.
+
+The tests cover: strict numeric validation, all three solve modes (ATM+Fly→Strangle, ATM+Strangle→Fly, Fly+Strangle→ATM), parser happy paths, every documented parser/validation error (malformed line, duplicate tenor, duplicate delta, ccy/cut mismatch, missing tenor), crossed-market detection, and negative-vol detection.
+
+The HTML UI is not loaded by the test runner; manually exercise the app by opening `strangle-calc.html` in Chrome/Edge.
