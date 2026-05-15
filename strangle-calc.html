@@ -408,6 +408,30 @@ function fmt(v) { return v.toFixed(3); }
 function readV(inp)      { const v = parseFloat(inp.value); return isNaN(v) ? null : v; }
 function writeV(inp, v)  { inp.value = v !== null ? fmt(v) : ''; }
 
+// ── Change flash ───────────────────────────────────────────────────────────
+
+const FLASH_HOLD_MS = 14000;   // stay gold for 14s
+const FLASH_FADE_MS = 1000;    // then fade back over 1s (total ~15s)
+const FLASH_COLOR   = '#f0b040';
+
+function flashChanged(inp) {
+  if (readV(inp) === null) return;   // don't flash empty cells
+  if (inp._ft) { clearTimeout(inp._ft); clearTimeout(inp._ft2); }
+  // Snap to gold immediately (suppress any ongoing color transition)
+  inp.style.transition = 'border-bottom-color 0.1s';
+  inp.style.color = FLASH_COLOR;
+  // After hold period, enable fade and remove inline color
+  inp._ft = setTimeout(() => {
+    inp.style.transition = 'border-bottom-color 0.1s, color ' + FLASH_FADE_MS + 'ms';
+    inp.style.color = '';
+    // Clean up transition override once fade completes
+    inp._ft2 = setTimeout(() => {
+      inp.style.transition = '';
+      inp._ft = inp._ft2 = null;
+    }, FLASH_FADE_MS);
+  }, FLASH_HOLD_MS);
+}
+
 // ── Reset button helpers ───────────────────────────────────────────────────
 
 function isPristine(row) {
@@ -454,6 +478,12 @@ function solveAndRefresh(row, sectionCtx) {
     const sb = readV(c.strBid),  so = readV(c.strOffer);
     writeV(c.atmBid,   (sb !== null && fo !== null) ? sb - fo : null);
     writeV(c.atmOffer, (so !== null && fb !== null) ? so - fb : null);
+  }
+
+  // Flash derived (computed) cells — they just changed
+  const srcSet0 = SOURCE_FIELDS[row.mode];
+  for (const [field, inp] of Object.entries(c)) {
+    if (!srcSet0.has(field)) flashChanged(inp);
   }
 
   // Recolor all inputs: source → white, derived → cyan, empty → muted
@@ -645,8 +675,9 @@ function renderSection(atm, fly) {
         const v = row.originals[field];
         row.cells[field].value = s !== null ? s : (v !== null ? fmt(v) : '');
         row.cells[field].className = v !== null ? 'v-src' : 'v-none';
+        flashChanged(row.cells[field]);   // flash each restored source cell
       }
-      solveAndRefresh(row, sectionCtx);
+      solveAndRefresh(row, sectionCtx);  // derived cells also flash inside
     });
     updateResetBtn(row);   // start dimmed (all rows pristine on initial render)
 
@@ -663,6 +694,7 @@ function renderSection(atm, fly) {
           if (row.mode === 'FLY') row.mode = 'ATM';
           else                    row.mode = 'STR';
         }
+        flashChanged(inp);   // flash the cell being edited
         solveAndRefresh(row, sectionCtx);
       });
     }
@@ -682,9 +714,10 @@ function renderSection(atm, fly) {
         if (cur === null) continue;
         // Round to avoid float drift (e.g. 6.025 + 0.1 → 6.125 not 6.124999...)
         row.cells[field].value = fmt(Math.round((cur + delta) * 1e6) / 1e6);
+        flashChanged(row.cells[field]);   // flash each shifted cell
       }
       for (const row of sectionCtx.rows) {
-        solveAndRefresh(row, sectionCtx);
+        solveAndRefresh(row, sectionCtx);  // derived cells also flash inside
       }
     });
   }
