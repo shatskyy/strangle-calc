@@ -85,7 +85,7 @@ Separate output block per delta. One-click copy button for each.
 
 ### Layout (top to bottom)
 
-1. **Input panel**: Two textareas side by side (ATM left, Fly right). Support pasting a second fly run at a different delta (10D + 25D). Auto-calculate on paste. “Calculate” button as fallback.
+1. **Input panel**: Two textareas side by side (ATM left, Fly right). Support pasting any number of fly runs at different deltas (5D, 10D, 15D, 25D, etc.), separated by blank lines. Auto-calculate on paste. “Calculate” button as fallback.
 1. **Interactive table**: One section per delta. Columns: `Tenor | ATM Bid | ATM Offer | Fly Bid | Fly Offer | Strangle Bid | Strangle Offer`. All vol cells editable.
 1. **Output panel**: Formatted text block per delta with copy button.
 
@@ -98,7 +98,7 @@ Separate output block per delta. One-click copy button for each.
 
 ### Multi-delta
 
-When two fly runs are pasted (10D and 25D), table expands with grouped columns per delta sharing the ATM columns. If only one delta, no empty columns. Output generates separate blocks per delta.
+Any number of fly runs can be pasted (5D, 10D, 15D, 25D, or any `{N}D FLY` header), separated by blank lines. Each delta renders its own section with a full ATM + Fly + Strangle table and a separate copyable output block. The parser captures the delta dynamically from the header — nothing is hardcoded to specific delta values.
 
 ### Styling
 
