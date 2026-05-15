@@ -722,6 +722,53 @@ function renderSection(atm, fly) {
     });
   }
 
+  // ── Arrow-key / Enter navigation ─────────────────────────────────────────
+  // Build a 2-D grid [row][col] of input elements so we can move between cells.
+  // FIELD_ORDER already defined above for the shift row.
+  const grid = sectionCtx.rows.map(row =>
+    FIELD_ORDER.map(field => row.cells[field])
+  );
+  const nRows = grid.length;
+  const nCols = FIELD_ORDER.length;
+
+  for (let r = 0; r < nRows; r++) {
+    for (let c = 0; c < nCols; c++) {
+      const inp = grid[r][c];
+      inp.addEventListener('keydown', e => {
+        let nr = r, nc = c;
+        switch (e.key) {
+          case 'ArrowUp':
+            nr = r - 1;
+            break;
+          case 'ArrowDown':
+            nr = r + 1;
+            break;
+          case 'Enter':
+            nr = e.shiftKey ? r - 1 : r + 1;
+            break;
+          case 'ArrowLeft':
+            // only navigate when cursor is already at the start of the text
+            if (inp.selectionStart !== 0 || inp.selectionEnd !== 0) return;
+            nc = c - 1;
+            if (nc < 0) { nr = r - 1; nc = nCols - 1; }
+            break;
+          case 'ArrowRight':
+            // only navigate when cursor is already at the end of the text
+            if (inp.selectionStart !== inp.value.length) return;
+            nc = c + 1;
+            if (nc >= nCols) { nr = r + 1; nc = 0; }
+            break;
+          default: return;
+        }
+        if (nr < 0 || nr >= nRows || nc < 0 || nc >= nCols) return;
+        e.preventDefault();
+        const target = grid[nr][nc];
+        target.focus();
+        target.select();
+      });
+    }
+  }
+
   section.appendChild(table);
 
   // ── Output block
