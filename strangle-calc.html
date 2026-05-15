@@ -108,6 +108,8 @@ button.calc-btn:active { background: #354ca0; }
 .error-msg {
   color: #e05050;
   font-size: 11px;
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 
 /* ── Results ── */
@@ -221,6 +223,18 @@ td input::placeholder { color: #252545; }
 .v-calc { color: #4fc3f7; }
 .v-none { color: #252545; }
 
+/* invalid (non-numeric) input — overrides base color */
+td input.v-invalid {
+  color: #ff7070;
+  background: rgba(224, 80, 80, 0.18);
+  border-bottom-color: #c04040;
+}
+td input.v-invalid:focus { border-bottom-color: #e05050; }
+
+/* negative-vol overlays — applied on top of base color */
+td input.v-neg-err  { color: #ff8080; background: rgba(224, 80, 80, 0.10); }
+td input.v-neg-warn { color: #f0b040; background: rgba(224, 160, 80, 0.10); }
+
 /* ── Shift row ── */
 thead tr.shift-row th {
   background: #0c0c1a;
@@ -331,82 +345,30 @@ button.copy-btn.copied { border-color: #206040; color: #30c060; }
 
 <div class="results" id="results"></div>
 
+<script src="strangle-calc-core.js"></script>
 <script>
-// ── Constants ─────────────────────────────────────────────────────────────
+// ── Bind pure logic from the core module ──────────────────────────────────
 
-const TENOR_ORDER = ['1W','2W','3W','1M','2M','3M','4M','5M','6M','9M','1Y','18M','2Y','3Y','5Y'];
-const TENOR_RANK  = Object.fromEntries(TENOR_ORDER.map((t, i) => [t, i]));
+const {
+  tenorRank, isStrictNumber, strictNumber, cellState, fmt,
+  parseRun, parseFlyBlock, parseATM,
+  validateCompatibility,
+  SOURCE_FIELDS: CORE_SOURCE_FIELDS, solve, rowFlags,
+  formatStrangleOutput,
+} = window.StrangleCore;
 
-function tenorRank(t) {
-  const r = TENOR_RANK[t.toUpperCase()];
-  return r !== undefined ? r : 999;
-}
-
-// Which fields are SOURCE (typed/retained) for each solve mode.
-// The two fields NOT in this set are derived/computed.
+// Convert to Sets for fast field membership checks in the UI layer.
 const SOURCE_FIELDS = {
-  STR: new Set(['atmBid','atmOffer','flyBid','flyOffer']),  // derive strBid + strOffer
-  FLY: new Set(['atmBid','atmOffer','strBid','strOffer']),  // derive flyBid + flyOffer
-  ATM: new Set(['flyBid','flyOffer','strBid','strOffer']),  // derive atmBid + atmOffer
+  STR: new Set(CORE_SOURCE_FIELDS.STR),
+  FLY: new Set(CORE_SOURCE_FIELDS.FLY),
+  ATM: new Set(CORE_SOURCE_FIELDS.ATM),
 };
 
-// ── Parser ────────────────────────────────────────────────────────────────
-
-function parseRun(text) {
-  const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
-  if (!lines.length) return null;
-
-  const header = lines[0];
-  const ccyM = header.match(/([A-Z]{3}\/[A-Z]{3})/i);
-  if (!ccyM) return { err: `No currency pair found in: "${header}"` };
-
-  const ccy = ccyM[1].toUpperCase();
-  const [base, quote] = ccy.split('/');
-  const cutM = header.match(/\b([A-Z]{3})\b/gi)
-    ?.map(s => s.toUpperCase())
-    .find(s => s !== base && s !== quote);
-  const cut = cutM || '';
-
-  const flyM = header.match(/\b(\d+D)\s+FLY\b/i);
-  const atmM = header.match(/\bATM\b/i);
-
-  let type, delta;
-  if      (atmM) { type = 'ATM'; delta = null; }
-  else if (flyM) { type = 'FLY'; delta = flyM[1].toUpperCase(); }
-  else           { return { err: `Unrecognised structure in header: "${header}"` }; }
-
-  const tenorRe = /^([0-9]+[DWMYdwmy])\s+([0-9.]+)\s*\/\s*([0-9.]+)/;
-  const tenors  = {};
-  for (let i = 1; i < lines.length; i++) {
-    const m = lines[i].match(tenorRe);
-    if (m) {
-      tenors[m[1].toUpperCase()] = {
-        bid: +m[2], offer: +m[3],
-        bidStr: m[2], offerStr: m[3],   // original strings preserved for display
-      };
-    }
-  }
-
-  return { ccy, cut, type, delta, tenors };
-}
-
-function parseFlyBlock(text) {
-  return text.trim()
-    .split(/\n[ \t]*\n/)
-    .map(b => b.trim())
-    .filter(Boolean)
-    .map(parseRun)
-    .filter(Boolean);
-}
-
-// ── Formatting ────────────────────────────────────────────────────────────
-
-function fmt(v) { return v.toFixed(3); }
-
-// ── Solve engine ──────────────────────────────────────────────────────────
-
-function readV(inp)      { const v = parseFloat(inp.value); return isNaN(v) ? null : v; }
-function writeV(inp, v)  { inp.value = v !== null ? fmt(v) : ''; }
+// ── Input value helpers ───────────────────────────────────────────────────
+// readV — usable numeric value or null. Treats blank AND invalid as null
+// (invalid cells are still highlighted; the solver just won't consume them).
+function readV(inp)     { return strictNumber(inp.value); }
+function writeV(inp, v) { inp.value = v !== null ? fmt(v) : ''; }
 
 // ── Change flash ───────────────────────────────────────────────────────────
 
@@ -452,79 +414,76 @@ function updateResetBtn(row) {
   row.resetBtn.disabled = p;
 }
 
-function solveAndRefresh(row, sectionCtx) {
+// Apply v-src / v-calc / v-none / v-invalid base classes plus
+// v-neg-err / v-neg-warn overlays. Also updates the crossed-row flag and
+// mode indicator. No flashing — that's done by the caller.
+function recolorRow(row) {
   const c = row.cells;
-
-  if (row.mode === 'STR') {
-    // strangle_bid   = atm_bid   + fly_bid
-    // strangle_offer = atm_offer + fly_offer
-    const ab = readV(c.atmBid),  ao = readV(c.atmOffer);
-    const fb = readV(c.flyBid),  fo = readV(c.flyOffer);
-    writeV(c.strBid,   (ab !== null && fb !== null) ? ab + fb : null);
-    writeV(c.strOffer, (ao !== null && fo !== null) ? ao + fo : null);
-
-  } else if (row.mode === 'FLY') {
-    // fly_bid   = strangle_bid   - atm_bid
-    // fly_offer = strangle_offer - atm_offer
-    const ab = readV(c.atmBid),  ao = readV(c.atmOffer);
-    const sb = readV(c.strBid),  so = readV(c.strOffer);
-    writeV(c.flyBid,   (sb !== null && ab !== null) ? sb - ab : null);
-    writeV(c.flyOffer, (so !== null && ao !== null) ? so - ao : null);
-
-  } else { // ATM
-    // atm_bid   = strangle_bid   - fly_bid
-    // atm_offer = strangle_offer - fly_offer
-    const fb = readV(c.flyBid),  fo = readV(c.flyOffer);
-    const sb = readV(c.strBid),  so = readV(c.strOffer);
-    writeV(c.atmBid,   (sb !== null && fb !== null) ? sb - fb : null);
-    writeV(c.atmOffer, (so !== null && fo !== null) ? so - fo : null);
-  }
-
-  // Flash derived (computed) cells — they just changed
-  const srcSet0 = SOURCE_FIELDS[row.mode];
-  for (const [field, inp] of Object.entries(c)) {
-    if (!srcSet0.has(field)) flashChanged(inp);
-  }
-
-  // Recolor all inputs: source → white, derived → cyan, empty → muted
   const srcSet = SOURCE_FIELDS[row.mode];
+  const vals = {
+    atmBid:   readV(c.atmBid),   atmOffer: readV(c.atmOffer),
+    flyBid:   readV(c.flyBid),   flyOffer: readV(c.flyOffer),
+    strBid:   readV(c.strBid),   strOffer: readV(c.strOffer),
+  };
+  const flags = rowFlags(vals);
+  const negByField = {
+    atmBid:   flags.negAtmBid   ? 'v-neg-err'  : null,
+    atmOffer: flags.negAtmOffer ? 'v-neg-err'  : null,
+    flyBid:   flags.negFlyBid   ? 'v-neg-warn' : null,
+    flyOffer: flags.negFlyOffer ? 'v-neg-warn' : null,
+    strBid:   flags.negStrBid   ? 'v-neg-err'  : null,
+    strOffer: flags.negStrOffer ? 'v-neg-err'  : null,
+  };
   for (const [field, inp] of Object.entries(c)) {
-    const v = readV(inp);
-    inp.className = v !== null
-      ? (srcSet.has(field) ? 'v-src' : 'v-calc')
-      : 'v-none';
+    const state = cellState(inp.value);
+    let base;
+    if (state === 'empty')        base = 'v-none';
+    else if (state === 'invalid') base = 'v-invalid';
+    else                          base = srcSet.has(field) ? 'v-src' : 'v-calc';
+    const overlay = (state === 'ok') ? negByField[field] : null;
+    inp.className = overlay ? `${base} ${overlay}` : base;
   }
-
-  // Crossed-market row highlight
-  const ab = readV(c.atmBid), ao = readV(c.atmOffer);
-  const fb = readV(c.flyBid), fo = readV(c.flyOffer);
-  const sb = readV(c.strBid), so = readV(c.strOffer);
-  const crossed =
-    (ab !== null && ao !== null && ab >= ao) ||
-    (fb !== null && fo !== null && fb >= fo) ||
-    (sb !== null && so !== null && sb >= so);
-  row.tr.classList.toggle('crossed', crossed);
-
-  // Mode indicator on tenor cell
+  row.tr.classList.toggle(
+    'crossed',
+    flags.crossedATM || flags.crossedFly || flags.crossedStr
+  );
   row.tdTenor.classList.toggle('mode-fly', row.mode === 'FLY');
   row.tdTenor.classList.toggle('mode-atm', row.mode === 'ATM');
+}
 
-  // Reset button dirty state
+function solveAndRefresh(row, sectionCtx) {
+  const c = row.cells;
+  const srcSet = SOURCE_FIELDS[row.mode];
+
+  // Solve: readV returns null for empty AND for non-numeric junk, so an
+  // invalid source cell produces a blank derived cell rather than NaN.
+  const vals = {
+    atmBid:   readV(c.atmBid),   atmOffer: readV(c.atmOffer),
+    flyBid:   readV(c.flyBid),   flyOffer: readV(c.flyOffer),
+    strBid:   readV(c.strBid),   strOffer: readV(c.strOffer),
+  };
+  const out = solve(row.mode, vals);
+  for (const field of ['atmBid','atmOffer','flyBid','flyOffer','strBid','strOffer']) {
+    if (!srcSet.has(field)) writeV(c[field], out[field]);
+  }
+
+  // Flash derived cells — they just changed.
+  for (const [field, inp] of Object.entries(c)) {
+    if (!srcSet.has(field)) flashChanged(inp);
+  }
+
+  recolorRow(row);
   updateResetBtn(row);
-
   updateOutput(sectionCtx);
 }
 
 function updateOutput({ ccy, cut, delta, rows, outPre }) {
-  const header = `${ccy} ${cut} ${delta} STRANGLE`;
-  const lines = rows.flatMap(row => {
-    const sb = readV(row.cells.strBid);
-    const so = readV(row.cells.strOffer);
-    return (sb !== null && so !== null)
-      ? [`${row.tenor.padEnd(4)} ${fmt(sb)}/${fmt(so)}`]
-      : [];
-  });
-  outPre.textContent = [header, ...lines].join('\n');
+  const outRows = rows.map(row => ({
+    tenor: row.tenor,
+    strBid: readV(row.cells.strBid),
+    strOffer: readV(row.cells.strOffer),
+  }));
+  outPre.textContent = formatStrangleOutput(ccy, cut, delta, outRows);
 }
 
 // ── Render ────────────────────────────────────────────────────────────────
@@ -657,15 +616,11 @@ function renderSection(atm, fly) {
       strOffer: makeInp(initSo, null, false),
     };
 
-    // Initial crossed check
-    if ((a && a.bid >= a.offer) ||
-        (f && f.bid >= f.offer) ||
-        (initSb !== null && initSo !== null && initSb >= initSo)) {
-      tr.classList.add('crossed');
-    }
-
     const row = { tenor, mode: 'STR', cells, tr, tdTenor, resetBtn, originals, origStrings };
     sectionCtx.rows.push(row);
+
+    // Initial classes: crossed-row flag + negative-vol overlays
+    recolorRow(row);
 
     // Reset button: restore original values and re-solve in STR mode
     resetBtn.addEventListener('click', () => {
@@ -820,22 +775,36 @@ function calculate() {
   const flyText = document.getElementById('ta-fly').value;
 
   if (!atmText.trim() && !flyText.trim()) return;
-  if (!atmText.trim()) { errEl.textContent = 'Paste an ATM run on the left.';          return; }
+  if (!atmText.trim()) { errEl.textContent = 'Paste an ATM run on the left.';            return; }
   if (!flyText.trim()) { errEl.textContent = 'Paste at least one Fly run on the right.'; return; }
 
-  const atm = parseRun(atmText);
-  if (!atm)              { errEl.textContent = 'Could not parse ATM input.';               return; }
-  if (atm.err)           { errEl.textContent = atm.err;                                    return; }
-  if (atm.type !== 'ATM'){ errEl.textContent = 'Left textarea must contain the ATM run.';  return; }
+  const errors = [];
 
-  const flyRuns = parseFlyBlock(flyText);
-  if (!flyRuns.length)   { errEl.textContent = 'Could not parse any Fly runs.'; return; }
-  for (const r of flyRuns) {
-    if (r.err)           { errEl.textContent = r.err;                            return; }
-    if (r.type !== 'FLY'){ errEl.textContent = `Expected a FLY run, got "${r.type}"`; return; }
+  const atmRes = parseATM(atmText);
+  if (!atmRes) { errEl.textContent = 'Could not parse ATM input.'; return; }
+  if (!atmRes.ok) {
+    errEl.textContent = atmRes.errors.map(e => `ATM: ${e}`).join('\n');
+    return;
+  }
+  const atm = atmRes.run;
+
+  const flyRes = parseFlyBlock(flyText);
+  if (!flyRes.ok) errors.push(...flyRes.errors.map(e => `Fly: ${e}`));
+  if (!flyRes.runs.length && flyRes.ok) {
+    errEl.textContent = 'Could not parse any Fly runs.';
+    return;
   }
 
-  flyRuns.forEach(fly => resultsEl.appendChild(renderSection(atm, fly)));
+  for (const fly of flyRes.runs) {
+    const compatErrs = validateCompatibility(atm, fly);
+    if (compatErrs.length) {
+      errors.push(...compatErrs);
+      continue;   // skip this fly section entirely
+    }
+    resultsEl.appendChild(renderSection(atm, fly));
+  }
+
+  errEl.textContent = errors.join('\n');
 }
 
 // ── Wire-up ───────────────────────────────────────────────────────────────
