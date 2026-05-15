@@ -8,27 +8,34 @@ Brokers paste ATM and butterfly vol runs, get implied strangle runs. All cells a
 
 ## Calculation Engine
 
-The core identity: `fly = strangle − atm` (in vol terms). Bid/offer crossing for package-implied pricing:
+### Core rule (must always hold)
+
+```
+strangle_bid   = atm_bid   + fly_bid
+strangle_offer = atm_offer + fly_offer
+```
+
+Bid pairs with bid, offer pairs with offer. No crossing.
 
 ### ATM + Fly → Strangle (primary, from paste)
 
 ```
-strangle_bid  = fly_offer + atm_bid
-strangle_offer = fly_bid   + atm_offer
+strangle_bid   = atm_bid   + fly_bid
+strangle_offer = atm_offer + fly_offer
 ```
 
 ### ATM + Strangle → Fly (when broker edits a strangle cell)
 
 ```
-fly_offer = strangle_bid  − atm_bid
-fly_bid   = strangle_offer − atm_offer
+fly_bid   = strangle_bid   − atm_bid
+fly_offer = strangle_offer − atm_offer
 ```
 
 ### Fly + Strangle → ATM (when broker edits an ATM cell after strangle is set)
 
 ```
-atm_bid   = strangle_bid  − fly_offer
-atm_offer = strangle_offer − fly_bid
+atm_bid   = strangle_bid   − fly_bid
+atm_offer = strangle_offer − fly_offer
 ```
 
 ## Input Format
@@ -111,14 +118,14 @@ Any number of fly runs can be pasted (5D, 10D, 15D, 25D, or any `{N}D FLY` heade
 
 Using the example inputs above, expected 1M strangle output:
 
-- strangle_bid  = fly_offer + atm_bid  = 0.725 + 6.025 = 6.750
-- strangle_offer = fly_bid + atm_offer = 0.475 + 6.600 = 7.075
-- Output: `1M 6.750/7.075`
+- strangle_bid   = atm_bid   + fly_bid   = 6.025 + 0.475 = 6.500
+- strangle_offer = atm_offer + fly_offer = 6.600 + 0.725 = 7.325
+- Output: `1M 6.500/7.325`
 
 Reverse check (ATM + Strangle → Fly):
 
-- fly_offer = strangle_bid − atm_bid   = 6.750 − 6.025 = 0.725 ✓
-- fly_bid   = strangle_offer − atm_offer = 7.075 − 6.600 = 0.475 ✓
+- fly_bid   = strangle_bid   − atm_bid   = 6.500 − 6.025 = 0.475 ✓
+- fly_offer = strangle_offer − atm_offer = 7.325 − 6.600 = 0.725 ✓
 
 ## Constraints
 
